@@ -1,0 +1,49 @@
+# General
+.DS_Store
+Thumbs.db
+*.log
+node_modules/
+.idea/
+.vscode/
+
+# Environment Variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build Artifacts
+dist/
+build/
+coverage/
+
+# Database
+*.sqlite
+*.db
+
+# EventPassServer Specific
+EventPassServer/dist/
+EventPassServer/node_modules/
+EventPassServer/database.sqlite
+
+# EventPassApp (React Native) Specific
+EventPassApp/node_modules/
+EventPassApp/.expo/
+EventPassApp/web-build/
+
+# Android
+EventPassApp/android/build/
+EventPassApp/android/.gradle/
+EventPassApp/android/app/build/
+EventPassApp/android/app/.cxx/
+EventPassApp/android/local.properties
+
+# iOS
+EventPassApp/ios/Pods/
+EventPassApp/ios/build/
+EventPassApp/ios/*.xcworkspace
+EventPassApp/ios/Podfile.lock
+
+# Metro
+.metro-health-check*
