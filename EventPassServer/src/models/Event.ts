@@ -1,6 +1,6 @@
 import { DataTypes, Model } from 'sequelize';
 import { sequelize } from '../config/database';
-import { Organizer } from './Auth';
+import { User } from './Auth';
 
 export class Event extends Model {
     public id!: string;
@@ -50,6 +50,7 @@ Event.init({
 }, {
     sequelize,
     modelName: 'Event',
+    tableName: 'Events',
 });
 
 export class BadgeTemplate extends Model {
@@ -60,6 +61,9 @@ export class BadgeTemplate extends Model {
     public icon_ref!: string;
     public limit!: number;
     public metadata_schema!: string;
+    public description!: string;
+    public image_url!: string;
+    public criteria!: string;
 }
 
 BadgeTemplate.init({
@@ -92,12 +96,24 @@ BadgeTemplate.init({
         type: DataTypes.JSON,
         allowNull: true,
     },
+    description: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+    },
+    image_url: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
+    criteria: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+    },
 }, {
     sequelize,
     modelName: 'BadgeTemplate',
 });
 
 // Relationships
-Event.belongsTo(Organizer, { foreignKey: 'organizer_id' });
+Event.belongsTo(User, { foreignKey: 'organizer_id' });
 BadgeTemplate.belongsTo(Event, { foreignKey: 'event_id' });
 Event.hasMany(BadgeTemplate, { foreignKey: 'event_id' });

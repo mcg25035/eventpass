@@ -1,5 +1,5 @@
 import { sequelize, connectDB } from '../config/database';
-import { User, Organizer } from './Auth';
+import { User } from './Auth';
 import { Event, BadgeTemplate } from './Event';
 import { Record, PendingValidation } from './Record';
 
@@ -14,7 +14,7 @@ export {
     connectDB,
     initModels,
     User,
-    Organizer,
+
     Event,
     BadgeTemplate,
     Record,

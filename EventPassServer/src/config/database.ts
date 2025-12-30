@@ -14,7 +14,7 @@ export const connectDB = async () => {
         await sequelize.authenticate();
         console.log('Database connected successfully.');
         // In production, use migrations instead of sync
-        await sequelize.sync({ alter: true });
+        await sequelize.sync(); // Disabled alter to prevent data corruption errors
         console.log('Database synchronized.');
     } catch (error) {
         console.error('Unable to connect to the database:', error);

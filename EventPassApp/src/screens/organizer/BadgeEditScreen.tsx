@@ -27,7 +27,7 @@ const BadgeEditScreen = ({ route, navigation }: any) => {
 
     const handleSave = async () => {
         if (!name.trim()) {
-            Alert.alert('Error', 'Please enter a badge name');
+            Alert.alert('錯誤', '請輸入徽章名稱');
             return;
         }
 
@@ -38,20 +38,20 @@ const BadgeEditScreen = ({ route, navigation }: any) => {
                 limit: parseInt(limit, 10),
                 icon_ref: '🏆' // Default
             });
-            Alert.alert('Success', 'Badge created successfully');
+            Alert.alert('成功', '徽章建立成功');
             navigation.goBack();
         } catch (error: any) {
             console.error(error);
-            Alert.alert('Error', 'Failed to create badge');
+            Alert.alert('錯誤', '建立徽章失敗');
         }
     };
 
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>{badgeId ? 'Edit Badge' : 'New Badge'}</Text>
+                <Text style={styles.headerTitle}>{badgeId ? '編輯徽章' : '新徽章'}</Text>
                 <TouchableOpacity onPress={() => navigation.goBack()}>
-                    <Text style={styles.headerButton}>Cancel</Text>
+                    <Text style={styles.headerButton}>取消</Text>
                 </TouchableOpacity>
             </View>
 
@@ -65,7 +65,7 @@ const BadgeEditScreen = ({ route, navigation }: any) => {
                             <Text style={styles.editIconText}>✎</Text>
                         </View>
                     </TouchableOpacity>
-                    <Text style={styles.helperText}>Tap to change icon</Text>
+                    <Text style={styles.helperText}>點擊更換圖示</Text>
                 </View>
 
                 {/* Form Fields */}
@@ -73,12 +73,12 @@ const BadgeEditScreen = ({ route, navigation }: any) => {
 
                     {/* Name Input */}
                     <View style={styles.inputRow}>
-                        <Text style={styles.label}>Name</Text>
+                        <Text style={styles.label}>名稱</Text>
                         <TextInput
                             style={styles.input}
                             value={name}
                             onChangeText={setName}
-                            placeholder="Enter badge name"
+                            placeholder="輸入徽章名稱"
                             placeholderTextColor="#c7c7cc"
                         />
                     </View>
@@ -87,7 +87,7 @@ const BadgeEditScreen = ({ route, navigation }: any) => {
 
                     {/* Type Selection */}
                     <View style={styles.typeRow}>
-                        <Text style={styles.typeLabel}>Type</Text>
+                        <Text style={styles.typeLabel}>類型</Text>
                         <View style={styles.chipContainer}>
                             {badgeTypes.map((type) => (
                                 <TouchableOpacity
@@ -113,7 +113,7 @@ const BadgeEditScreen = ({ route, navigation }: any) => {
 
                     {/* Limit Stepper */}
                     <View style={styles.inputRow}>
-                        <Text style={styles.label}>Issuance Limit</Text>
+                        <Text style={styles.label}>發放上限</Text>
                         <View style={styles.stepperContainer}>
                             <TouchableOpacity
                                 style={styles.stepperButton}
@@ -146,7 +146,7 @@ const BadgeEditScreen = ({ route, navigation }: any) => {
                     style={styles.saveButton}
                     onPress={handleSave}
                 >
-                    <Text style={styles.saveButtonText}>Save Badge</Text>
+                    <Text style={styles.saveButtonText}>儲存徽章</Text>
                 </TouchableOpacity>
 
             </ScrollView>

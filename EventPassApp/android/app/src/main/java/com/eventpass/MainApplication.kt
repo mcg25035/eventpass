@@ -22,6 +22,17 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    
+    // Auto-configure Metro host for physical device debugging
+    try {
+      val prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(this)
+      if (!prefs.contains("debug_http_host")) {
+        prefs.edit().putString("debug_http_host", "10.104.173.190:8081").apply()
+      }
+    } catch (e: Exception) {
+      // Ignore
+    }
+
     loadReactNative(this)
   }
 }

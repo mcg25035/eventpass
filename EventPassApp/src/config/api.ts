@@ -1,9 +1,9 @@
 import { Platform } from 'react-native';
 
 const getBaseUrl = () => {
-    // Android Emulator uses 10.0.2.2 to access localhost
+    // Android Emulator uses 10.0.2.2, but physical device needs LAN IP
     if (Platform.OS === 'android') {
-        return 'http://10.0.2.2:3000';
+        return 'http://10.104.173.132:3000';
     }
     // iOS Simulator uses localhost
     return 'http://localhost:3000';

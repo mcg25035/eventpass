@@ -18,19 +18,19 @@ const LoginScreen = ({ navigation }: any) => {
 
     const handleLogin = async () => { // Made function async
         if (!email || !password) {
-            Alert.alert('Error', 'Please enter both email and password');
+            Alert.alert('錯誤', '請輸入電子郵件和密碼');
             return;
         }
 
         setLoading(true);
         try {
             await ApiService.auth.login(email, password);
-            Alert.alert('Success', 'Logged in successfully!');
+            Alert.alert('成功', '登入成功！');
             navigation.replace('Dashboard'); // Changed navigate to replace for login flow
         } catch (error: any) {
             console.error(error);
-            const message = error.response?.data?.message || 'Login failed. Please check your network or credentials.';
-            Alert.alert('Login Failed', message);
+            const message = error.response?.data?.message || '登入失敗。請檢查您的網絡或憑據。';
+            Alert.alert('登入失敗', message);
         } finally {
             setLoading(false);
         }
@@ -42,23 +42,23 @@ const LoginScreen = ({ navigation }: any) => {
                 <Text style={styles.title}>EventPass</Text>
 
                 <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Email</Text>
+                    <Text style={styles.label}>電子郵件</Text>
                     <TextInput
                         style={styles.input}
                         value={email}
                         onChangeText={setEmail}
-                        placeholder="Enter your email"
+                        placeholder="輸入您的電子郵件"
                         autoCapitalize="none"
                     />
                 </View>
 
                 <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Password</Text>
+                    <Text style={styles.label}>密碼</Text>
                     <TextInput
                         style={styles.input}
                         value={password}
                         onChangeText={setPassword}
-                        placeholder="Enter your password"
+                        placeholder="輸入您的密碼"
                         secureTextEntry
                     />
                 </View>
@@ -68,14 +68,14 @@ const LoginScreen = ({ navigation }: any) => {
                     onPress={handleLogin}
                     disabled={loading}
                 >
-                    <Text style={styles.loginButtonText}>{loading ? 'Logging in...' : 'Login'}</Text>
+                    <Text style={styles.loginButtonText}>{loading ? '登入中...' : '登入'}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                     style={styles.registerLink}
                     onPress={() => navigation.navigate('Register')}
                 >
-                    <Text style={styles.registerLinkText}>Don't have an account? Register</Text>
+                    <Text style={styles.registerLinkText}>還沒有帳號？註冊</Text>
                 </TouchableOpacity>
             </View>
         </SafeAreaView>

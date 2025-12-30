@@ -8,20 +8,32 @@ import {
     ScrollView,
 } from 'react-native';
 
+import { useFocusEffect } from '@react-navigation/native';
+import { ApiService } from '../../services/ApiService';
+import { useState, useCallback } from 'react';
+
 const ActivityDetailScreen = ({ route, navigation }: any) => {
     const { activityId, activityName } = route.params || { activityName: 'Activity' };
+    const [isOffline, setIsOffline] = useState(false);
+
+    useFocusEffect(
+        useCallback(() => {
+            const offline = ApiService.config.isForceOffline();
+            setIsOffline(offline);
+        }, [])
+    );
 
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>Activity Options</Text>
+                <Text style={styles.headerTitle}>活動選項</Text>
             </View>
 
             <ScrollView contentContainerStyle={styles.content}>
                 <Text style={styles.screenTargetTitle}>{activityName}</Text>
 
                 <View style={styles.section}>
-                    <Text style={styles.sectionHeader}>Actions</Text>
+                    <Text style={styles.sectionHeader}>操作</Text>
 
                     <View style={styles.card}>
                         <TouchableOpacity
@@ -31,18 +43,30 @@ const ActivityDetailScreen = ({ route, navigation }: any) => {
                             <View style={styles.iconContainer}>
                                 <Text style={styles.icon}>🎯</Text>
                             </View>
-                            <Text style={styles.actionText}>Start Activity</Text>
+                            <Text style={styles.actionText}>發放徽章</Text>
                             <Text style={styles.chevron}>›</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
                             style={[styles.actionRow, styles.borderedRow]}
-                            onPress={() => navigation.navigate('ActivitySettings', { activityId, activityName })}
+                            onPress={() => !isOffline && navigation.navigate('ActivitySettings', { activityId, activityName })}
+                            disabled={isOffline}
                         >
                             <View style={styles.iconContainer}>
-                                <Text style={styles.icon}>⚙️</Text>
+                                <Text style={[styles.icon, isOffline && styles.disabledIcon]}>⚙️</Text>
                             </View>
-                            <Text style={styles.actionText}>Edit Activity</Text>
+                            <Text style={[styles.actionText, isOffline && styles.disabledText]}>編輯活動 {isOffline ? '(離線)' : ''}</Text>
+                            <Text style={styles.chevron}>›</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[styles.actionRow, styles.borderedRow]}
+                            onPress={() => navigation.navigate('PuzzleAssets', { activityId, activityName })}
+                        >
+                            <View style={styles.iconContainer}>
+                                <Text style={styles.icon}>🖨️</Text>
+                            </View>
+                            <Text style={styles.actionText}>列印解謎 QR Code</Text>
                             <Text style={styles.chevron}>›</Text>
                         </TouchableOpacity>
 
@@ -53,7 +77,7 @@ const ActivityDetailScreen = ({ route, navigation }: any) => {
                             <View style={styles.iconContainer}>
                                 <Text style={styles.icon}>👋</Text>
                             </View>
-                            <Text style={styles.actionText}>Participate</Text>
+                            <Text style={styles.actionText}>參加活動</Text>
                             <Text style={styles.chevron}>›</Text>
                         </TouchableOpacity>
                     </View>
@@ -135,6 +159,13 @@ const styles = StyleSheet.create({
         color: '#c7c7cc',
         fontWeight: '400',
     },
+
+    disabledText: {
+        color: '#c7c7cc',
+    },
+    disabledIcon: {
+        opacity: 0.3,
+    }
 });
 
 export default ActivityDetailScreen;

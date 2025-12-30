@@ -8,6 +8,7 @@ import {
   Linking,
   Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiService } from '../../services/ApiService';
 import {
   Camera,
@@ -15,6 +16,8 @@ import {
   useCameraPermission,
   useCodeScanner
 } from 'react-native-vision-camera';
+import QRCode from 'react-native-qrcode-svg';
+import { Modal } from 'react-native';
 
 const ParticipantActivityScreen = ({ route, navigation }: any) => {
   const { activityName, activityId } = route.params || { activityName: 'Event', activityId: '' };
@@ -23,13 +26,26 @@ const ParticipantActivityScreen = ({ route, navigation }: any) => {
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('back');
 
+  // Show My ID
+  const [showIdModal, setShowIdModal] = useState(false);
+  const [userId, setUserId] = useState<string>('');
+
   useEffect(() => {
     checkEventStatus();
+    loadUser();
   }, [activityId]);
+
+  const loadUser = async () => {
+    const info = await AsyncStorage.getItem('user_info');
+    if (info) {
+      const user = JSON.parse(info);
+      setUserId(user.id);
+    }
+  };
 
   const checkEventStatus = async () => {
     try {
-      const event = await ApiService.events.getEvent(activityId);
+      const event = await ApiService.events.getPublicEvent(activityId);
       const now = new Date();
       const start = new Date(event.start_time);
       const end = new Date(event.end_time);
@@ -53,25 +69,71 @@ const ParticipantActivityScreen = ({ route, navigation }: any) => {
     onCodeScanned: async (codes) => {
       if (codes.length > 0 && isScanning) {
         setIsScanning(false); // Stop scanning immediately
-        const value = codes[0].value;
+        const value = codes[0].value?.trim();
         if (!value) return;
 
         console.log(`Scanned: ${value}`);
 
-        // Simple format check (In real app, use structured JSON or Prefix)
-        // Assume simple token = Online
-        // Assume JSON with specific fields = Offline
-
-        // 1. Try Online Claim
         try {
-          // Optimization: Only if it looks like a token (e.g. UUID)
-          // For now, try claim
+          // Check for Secure Offline QR (JSON)
+          // Check for Secure Offline QR (JSON)
+          // We assume any JSON starting with { is potentially a special token
+          if (value.startsWith('{')) {
+            try {
+              const data = JSON.parse(value);
+              if (data.type === 'secure' && data.blob && data.eid) {
+                // Handle Secure Claim
+                try {
+                  await ApiService.events.claimEncrypted(data.eid, data.blob);
+                  Alert.alert('成功', '安全憑證領取成功！');
+                } catch (e: any) {
+                  console.log('Secure claim error:', e);
+                  // Check for offline OR Organizer Not Synced
+                  if (
+                    e.message === 'Network Error' ||
+                    e.isOfflineError ||
+                    !e.response ||
+                    e.response?.data?.error === 'ORGANIZER_NOT_SYNCED'
+                  ) {
+                    await saveOfflineClaim(value); // Save the raw JSON string
+                    if (e.response?.data?.error === 'ORGANIZER_NOT_SYNCED') {
+                      Alert.alert('驗證中', '已收到憑證！主辦方尚未同步裝置。驗證稍後將自動完成。');
+                    }
+                  } else {
+                    Alert.alert('錯誤', '安全驗證失敗：' + (e.response?.data?.error || e.message));
+                  }
+                }
+                return;
+              }
+            } catch (e) {
+              // Not JSON or failed parse, fall through to normal token
+              console.log('JSON parse failed for potential secure token:', e);
+            }
+          }
+
+          // 1. Try Online Claim (Standard Token)
           await handleOnlineClaim(value);
-        } catch (ignored) {
-          // 2. Fallback to Offline Check
-          // If online claim fails (maybe network, or it's an offline code)
-          // handleOfflineVerification(value);
-          Alert.alert('Scan Result', `Scanned: ${value}\n\n(Online Claim Failed, Offline logic not yet fully implemented)`);
+        } catch (error: any) {
+          console.log('Claim error:', error);
+
+          // Check for specific backend errors first
+          if (error.response?.data?.error) {
+            const errorMessage = error.response.data.error;
+            if (errorMessage.includes('expired') || errorMessage.includes('Invalid')) {
+              Alert.alert('憑證領取失敗', '代碼過期或無效。\n\n請請求主辦方產生新的 QR Code。');
+            } else if (errorMessage.includes('already claimed')) {
+              Alert.alert('已領取', '您已經領取過此憑證！');
+            } else {
+              Alert.alert('領取錯誤', errorMessage);
+            }
+          } else {
+            // Check if it is a network/offline error
+            if (error.isOfflineError || error.message === 'Network Error' || !error.response) {
+              await saveOfflineClaim(value);
+            } else {
+              Alert.alert('掃描結果', `已掃描：${value}\n\n(線上領取失敗：${error.message})`);
+            }
+          }
         }
       }
     }
@@ -80,24 +142,60 @@ const ParticipantActivityScreen = ({ route, navigation }: any) => {
   const handleOnlineClaim = async (token: string) => {
     try {
       const result = await ApiService.events.claimBadge(token);
-      Alert.alert('Success', 'Badge Claimed Successfully!');
+      Alert.alert('成功', '憑證領取成功！');
     } catch (error: any) {
       throw error; // Rethrow to let caller handle or show specific error
     }
   };
 
-  const handleOfflineVerification = async (data: string) => {
-    // Mock Offline Logic
-    Alert.alert('Offline Mode', 'Verification data saved locally. Please sync when online.');
+  const saveOfflineClaim = async (token: string) => {
+    try {
+      const stored = await AsyncStorage.getItem('offline_claims');
+      const claims = stored ? JSON.parse(stored) : [];
+
+      // Check duplicate
+      if (claims.some((c: any) => c.token === token)) {
+        Alert.alert('資訊', '此憑證已儲存等待離線同步。');
+        return;
+      }
+
+      claims.push({
+        token,
+        timestamp: Date.now(),
+        activityId
+      });
+
+      await AsyncStorage.setItem('offline_claims', JSON.stringify(claims));
+      Alert.alert('離線模式', '領取已本機儲存！請在上線時同步。');
+    } catch (e) {
+      console.error(e);
+      Alert.alert('錯誤', '儲存離線領取失敗。');
+    }
+  };
+  const handleOfflineVerification = async (token: string) => {
+    try {
+      const queueJson = await AsyncStorage.getItem('offline_claims_queue');
+      const queue = queueJson ? JSON.parse(queueJson) : [];
+
+      // Prevent duplicates in queue
+      if (!queue.find((q: any) => q.token === token)) {
+        queue.push({ token, timestamp: Date.now() });
+        await AsyncStorage.setItem('offline_claims_queue', JSON.stringify(queue));
+      }
+
+      Alert.alert('Offline Mode', 'Badge claim saved to outbox.\n(已儲存至離線匣，連線後請同步)');
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save offline claim.');
+    }
   };
 
   const handleStartScan = async () => {
     if (!hasPermission) {
       const granted = await requestPermission();
       if (!granted) {
-        Alert.alert('Permission needed', 'Camera permission is required to scan codes.', [
-          { text: 'Settings', onPress: () => Linking.openSettings() },
-          { text: 'Cancel' }
+        Alert.alert('需要權限', '需要相機權限才能掃描代碼。', [
+          { text: '設定', onPress: () => Linking.openSettings() },
+          { text: '取消' }
         ]);
         return;
       }
@@ -110,8 +208,8 @@ const ParticipantActivityScreen = ({ route, navigation }: any) => {
       return (
         <SafeAreaView style={styles.scannerContainer}>
           <View style={styles.scannerCenter}>
-            <Text style={{ color: 'white' }}>No Camera Device Found</Text>
-            <TouchableOpacity onPress={() => setIsScanning(false)}><Text style={{ color: 'white', marginTop: 20 }}>Close</Text></TouchableOpacity>
+            <Text style={{ color: 'white' }}>找不到相機裝置</Text>
+            <TouchableOpacity onPress={() => setIsScanning(false)}><Text style={{ color: 'white', marginTop: 20 }}>關閉</Text></TouchableOpacity>
           </View>
         </SafeAreaView>
       );
@@ -138,7 +236,7 @@ const ParticipantActivityScreen = ({ route, navigation }: any) => {
             >
               <Text style={styles.iconText}>✕</Text>
             </TouchableOpacity>
-            <Text style={styles.scannerTitle}>Scan Badge</Text>
+            <Text style={styles.scannerTitle}>掃描憑證</Text>
             <TouchableOpacity style={styles.iconButton}>
               <Text style={styles.iconText}>⚡</Text>
             </TouchableOpacity>
@@ -153,7 +251,7 @@ const ParticipantActivityScreen = ({ route, navigation }: any) => {
               <View style={styles.cornerBottomRight} />
               <View style={styles.scanLine} />
             </View>
-            <Text style={styles.scanInstruction}>Align QR code within frame</Text>
+            <Text style={styles.scanInstruction}>將 QR Code 對準框框</Text>
           </View>
 
         </View>
@@ -169,8 +267,8 @@ const ParticipantActivityScreen = ({ route, navigation }: any) => {
 
       <View style={styles.content}>
         <View style={styles.infoCard}>
-          <Text style={styles.welcomeText}>Welcome to {activityName}!</Text>
-          <Text style={styles.infoText}>Ready to participate? Scan the organizer's badge code to check in or receive your badge.</Text>
+          <Text style={styles.welcomeText}>歡迎來到 {activityName}！</Text>
+          <Text style={styles.infoText}>準備好參加了嗎？掃描主辦方的憑證代碼以簽到或領取憑證。</Text>
         </View>
 
         <TouchableOpacity
@@ -180,9 +278,56 @@ const ParticipantActivityScreen = ({ route, navigation }: any) => {
           <View style={styles.iconContainer}>
             <Text style={styles.scanIcon}>📷</Text>
           </View>
-          <Text style={styles.scanButtonText}>Scan Badge (掃描憑證)</Text>
+          <Text style={styles.scanButtonText}>掃描憑證</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.scanButton, styles.idButton]}
+          onPress={() => setShowIdModal(true)}
+        >
+          <View style={styles.iconContainer}>
+            <Text style={styles.scanIcon}>🆔</Text>
+          </View>
+          <Text style={styles.scanButtonText}>顯示我的 ID</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.scanButton, { marginTop: 10, backgroundColor: '#34C759' }]}
+          onPress={() => navigation.navigate('Lobby', { activityId, activityName })}
+        >
+          <View style={styles.iconContainer}>
+            <Text style={styles.scanIcon}>🧩</Text>
+          </View>
+          <Text style={styles.scanButtonText}>玩拼圖遊戲</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Show My ID Modal */}
+      <Modal
+        visible={showIdModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowIdModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>我的參加者 ID</Text>
+            <TouchableOpacity onPress={() => setShowIdModal(false)}>
+              <Text style={styles.closeButton}>關閉</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.qrContainer}>
+            {userId ? (
+              <QRCode value={userId} size={250} />
+            ) : (
+              <Text>載入 ID 中...</Text>
+            )}
+            <Text style={styles.qrInstruction}>
+              向主辦方出示此代碼以進行安全憑證發放。
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -346,6 +491,43 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
+  idButton: {
+    marginTop: 20,
+    backgroundColor: '#5856D6',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  modalHeader: {
+    padding: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  closeButton: {
+    fontSize: 17,
+    color: '#007AFF',
+  },
+  qrContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  qrInstruction: {
+    marginTop: 40,
+    fontSize: 16,
+    textAlign: 'center',
+    color: '#666',
+    lineHeight: 24,
+  },
 });
 
 export default ParticipantActivityScreen;

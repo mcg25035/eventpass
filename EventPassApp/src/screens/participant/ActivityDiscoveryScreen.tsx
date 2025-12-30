@@ -14,26 +14,46 @@ import { Event } from '../../services/ApiService';
 const ActivityDiscoveryScreen = ({ navigation }: any) => {
     const [activities, setActivities] = React.useState<Event[]>([]);
     const [error, setError] = React.useState('');
+    const [isOfflineMode, setIsOfflineMode] = React.useState(false);
 
     React.useEffect(() => {
-        fetchActivities();
-    }, []);
+        const unsubscribe = navigation.addListener('focus', () => {
+            fetchActivities();
+        });
+        return unsubscribe;
+    }, [navigation]);
 
     const fetchActivities = async () => {
         try {
-            const data = await ApiService.events.getAllEvents();
+            let data = await ApiService.events.getAllEvents();
+
+            // Check Offline Mode
+            const offline = ApiService.config.isForceOffline();
+            setIsOfflineMode(offline);
+
+            if (offline) {
+                // Filter for offline capable events only
+                data = data.filter(e => e.is_offline_active);
+            }
+
             setActivities(data);
         } catch (err) {
             console.error(err);
-            setError('Failed to load activities');
+            setError('載入活動失敗');
         }
     };
 
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>Discover Activities</Text>
+                <Text style={styles.headerTitle}>探索活動</Text>
             </View>
+
+            {isOfflineMode && (
+                <View style={styles.offlineBanner}>
+                    <Text style={styles.offlineBannerText}>⚠ 離線模式：僅顯示可下載活動</Text>
+                </View>
+            )}
 
             <ScrollView contentContainerStyle={styles.list}>
                 {activities.map((activity) => (
@@ -48,13 +68,28 @@ const ActivityDiscoveryScreen = ({ navigation }: any) => {
                         <View style={styles.textContainer}>
                             <Text style={styles.activityName}>{activity.title}</Text>
                             <Text style={styles.activityDate}>{new Date(activity.start_time).toLocaleDateString()}</Text>
+                            {activity.is_offline_active && (
+                                <View style={styles.offlineTag}>
+                                    <Text style={styles.offlineTagText}>⚡ 離線</Text>
+                                </View>
+                            )}
                         </View>
                         <Text style={styles.chevron}>›</Text>
                     </TouchableOpacity>
                 ))}
                 {activities.length === 0 && !error && (
-                    <Text style={{ textAlign: 'center', marginTop: 20, color: '#888' }}>No activities found.</Text>
+                    <Text style={{ textAlign: 'center', marginTop: 20, color: '#888' }}>
+                        {isOfflineMode ? '快取中未找到支援離線的活動。' : '未找到活動。'}
+                    </Text>
                 )}
+                {error ? (
+                    <View style={{ padding: 20, alignItems: 'center' }}>
+                        <Text style={{ textAlign: 'center', color: 'red', marginBottom: 10 }}>{error}</Text>
+                        <TouchableOpacity onPress={fetchActivities} style={{ padding: 10, backgroundColor: '#ddd', borderRadius: 8 }}>
+                            <Text>重試</Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : null}
             </ScrollView>
         </SafeAreaView>
     );
@@ -123,6 +158,29 @@ const styles = StyleSheet.create({
         color: '#c7c7cc',
         fontWeight: '300',
     },
+    offlineBanner: {
+        backgroundColor: '#FF9500',
+        padding: 8,
+        alignItems: 'center',
+    },
+    offlineBannerText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 12,
+    },
+    offlineTag: {
+        marginTop: 4,
+        backgroundColor: '#e0f7fa',
+        alignSelf: 'flex-start',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+    },
+    offlineTagText: {
+        color: '#006064',
+        fontSize: 10,
+        fontWeight: 'bold',
+    }
 });
 
 export default ActivityDiscoveryScreen;

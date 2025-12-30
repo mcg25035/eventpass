@@ -15,6 +15,7 @@ import { ApiService, Event } from '../../services/ApiService';
 const OrganizerManagementScreen = ({ navigation }: any) => {
     const [activities, setActivities] = useState<Event[]>([]);
     const [loading, setLoading] = useState(true);
+    const [isOffline, setIsOffline] = useState(false);
 
     useFocusEffect(
         useCallback(() => {
@@ -25,13 +26,32 @@ const OrganizerManagementScreen = ({ navigation }: any) => {
     const fetchEvents = async () => {
         setLoading(true);
         try {
+            setIsOffline(ApiService.config.isForceOffline());
             const events = await ApiService.events.getEvents();
             setActivities(events);
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            Alert.alert('Error', 'Failed to load events.');
+            const offline = ApiService.config.isForceOffline();
+            if (offline || error.message === 'Network Error' || error.isOfflineError) {
+                setIsOffline(true);
+                // If cache was empty, we are here.
+            } else {
+                Alert.alert('錯誤', '無法載入活動。');
+            }
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleLogout = async () => {
+        try {
+            await ApiService.auth.logout();
+            navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+            });
+        } catch (error) {
+            console.error(error);
         }
     };
 
@@ -42,8 +62,11 @@ const OrganizerManagementScreen = ({ navigation }: any) => {
         >
             <View style={styles.cardHeader}>
                 <Text style={styles.activityName}>{item.title}</Text>
-                <TouchableOpacity onPress={() => navigation.navigate('ActivitySettings', { activityId: item.id, activityName: item.title })}>
-                    <Text style={styles.settingsIcon}>⚙️</Text>
+                <TouchableOpacity
+                    onPress={() => !isOffline && navigation.navigate('ActivitySettings', { activityId: item.id, activityName: item.title })}
+                    disabled={isOffline}
+                >
+                    <Text style={[styles.settingsIcon, isOffline && styles.disabledIcon]}>⚙️</Text>
                 </TouchableOpacity>
             </View>
             <View style={styles.cardBody}>
@@ -58,7 +81,12 @@ const OrganizerManagementScreen = ({ navigation }: any) => {
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>My Activities</Text>
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                    <Text style={styles.headerTitle}>我的活動</Text>
+                </View>
+                <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+                    <Text style={styles.logoutText}>登出</Text>
+                </TouchableOpacity>
             </View>
 
             {loading ? (
@@ -72,10 +100,32 @@ const OrganizerManagementScreen = ({ navigation }: any) => {
                     keyExtractor={(item) => item.id}
                     contentContainerStyle={styles.listContent}
                     ListEmptyComponent={
-                        <Text style={styles.emptyText}>No activities found. Create one!</Text>
+                        <Text style={styles.emptyText}>
+                            {isOffline ? '找不到快取的活動。請上線同步。' : '找不到活動。建立一個吧！'}
+                        </Text>
                     }
                 />
             )}
+
+            <View style={styles.footerContainer}>
+                <TouchableOpacity
+                    style={styles.syncButton}
+                    onPress={async () => {
+                        try {
+                            const count = await ApiService.events.syncLocalValidations();
+                            if (count > 0) {
+                                Alert.alert('同步完成', `已上傳 ${count} 筆驗證記錄。`);
+                            } else {
+                                Alert.alert('已是最新', '沒有需要同步的離線記錄。');
+                            }
+                        } catch (e: any) {
+                            Alert.alert('同步失敗', e.message);
+                        }
+                    }}
+                >
+                    <Text style={styles.syncButtonText}>同步驗證記錄</Text>
+                </TouchableOpacity>
+            </View>
 
             <TouchableOpacity
                 style={styles.fab}
@@ -95,14 +145,23 @@ const styles = StyleSheet.create({
     header: {
         padding: 16,
         backgroundColor: '#fff',
-        borderBottomWidth: 1,
         borderBottomColor: '#e5e5ea',
+        flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'space-between',
     },
     headerTitle: {
         fontSize: 17,
         fontWeight: '600',
         color: '#000',
+    },
+    logoutButton: {
+        position: 'absolute',
+        right: 16,
+    },
+    logoutText: {
+        color: '#FF3B30',
+        fontSize: 16,
     },
     listContent: {
         padding: 16,
@@ -186,6 +245,38 @@ const styles = StyleSheet.create({
         fontSize: 32,
         color: '#fff',
         marginTop: -4,
+    },
+
+    offlineBanner: {
+        backgroundColor: '#FF9500',
+        padding: 8,
+        alignItems: 'center',
+    },
+    offlineBannerText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 12,
+    },
+
+    disabledIcon: {
+        opacity: 0.1,
+    },
+    footerContainer: {
+        padding: 16,
+        backgroundColor: '#fff',
+        borderTopWidth: 1,
+        borderTopColor: '#e5e5ea',
+    },
+    syncButton: {
+        backgroundColor: '#34C759', // Green
+        padding: 16,
+        borderRadius: 12,
+        alignItems: 'center',
+    },
+    syncButtonText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: 'bold',
     },
 });
 

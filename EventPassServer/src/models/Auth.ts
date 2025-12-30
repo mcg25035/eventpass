@@ -6,6 +6,7 @@ export class User extends Model {
     public username!: string;
     public email!: string;
     public password_hash!: string;
+    public isOrganizer!: boolean;
 }
 
 User.init({
@@ -27,38 +28,14 @@ User.init({
         type: DataTypes.STRING,
         allowNull: false,
     },
+    isOrganizer: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+    }
 }, {
     sequelize,
     modelName: 'User',
+    tableName: 'Users', // Explicitly define table name
 });
 
-export class Organizer extends Model {
-    public id!: string;
-    public name!: string;
-    public email!: string;
-    public password_hash!: string;
-}
 
-Organizer.init({
-    id: {
-        type: DataTypes.UUID,
-        defaultValue: DataTypes.UUIDV4,
-        primaryKey: true,
-    },
-    name: {
-        type: DataTypes.STRING,
-        allowNull: false,
-    },
-    email: {
-        type: DataTypes.STRING,
-        allowNull: false,
-        unique: true,
-    },
-    password_hash: {
-        type: DataTypes.STRING,
-        allowNull: false,
-    },
-}, {
-    sequelize,
-    modelName: 'Organizer',
-});

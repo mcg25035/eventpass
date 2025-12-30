@@ -8,11 +8,13 @@ import {
     ScrollView,
     TextInput,
     Alert,
+    Modal,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { ApiService } from '../../services/ApiService';
 import QRCode from 'react-native-qrcode-svg';
-import { Modal } from 'react-native';
+import { Camera, useCameraDevice, useCodeScanner, useCameraPermission } from 'react-native-vision-camera';
 
 interface Badge {
     id: string;
@@ -25,16 +27,120 @@ const IssueBadgeScreen = ({ route, navigation }: any) => {
     const { activityName, activityId } = route.params || { activityName: 'Activity', activityId: '1' };
 
     const [availableBadges, setAvailableBadges] = useState<Badge[]>([]);
+
     const [selectedBadge, setSelectedBadge] = useState<Badge | null>(null);
+    const [isOffline, setIsOffline] = useState(false);
 
     // QR Code State
     const [showQrModal, setShowQrModal] = useState(false);
     const [qrToken, setQrToken] = useState<string>('');
     const [expiresAt, setExpiresAt] = useState<number>(0);
 
+    // Secure Offline State
+    const [showScanModal, setShowScanModal] = useState(false);
+    const [isCameraActive, setIsCameraActive] = useState(false); // Controls camera pause/resume
+    const [participantId, setParticipantId] = useState<string | null>(null);
+    const [processingSecure, setProcessingSecure] = useState(false);
+
+    // Camera Setup
+    const device = useCameraDevice('back');
+    const { hasPermission, requestPermission } = useCameraPermission();
+
+    const onCodeScanned = useCallback((codes: any[]) => {
+        if (codes.length > 0 && codes[0].value) {
+            const val = codes[0].value;
+            // Handle JSON Tokens (like Puzzle Win)
+            if (val.startsWith('{')) {
+                try {
+                    const data = JSON.parse(val);
+                    if (data.type === 'secure' && data.blob) {
+                        setIsCameraActive(false); // Pause camera
+                        // setShowScanModal(false); // Keep modal open
+                        handleSecureToken(data);
+                        return;
+                    }
+                } catch (e) { }
+            }
+
+            // Default: Assume pure UserID
+            setParticipantId(val);
+            setIsCameraActive(false); // Pause
+            setShowScanModal(false); // Close matching modal
+            generateSecureBlob(val);
+        }
+    }, [selectedBadge, activityId]);
+
+    const handleSecureToken = (data: any) => {
+        try {
+            const payload = JSON.parse(data.blob); // In Puzzle, blob is just JSON string of details
+            if (payload.proofs) {
+                // Determine Badge ID from Token
+                const tokenBadgeId = payload.bid;
+
+                // If token dictates a badge, we MUST select it (or check if it exists)
+                let targetBadge = selectedBadge;
+                if (tokenBadgeId) {
+                    targetBadge = availableBadges.find(b => b.id === tokenBadgeId) || null;
+                    if (targetBadge) {
+                        setSelectedBadge(targetBadge);
+                    } else {
+                        Alert.alert('Error', `This win is for a badge ID (${tokenBadgeId}) that doesn't exist in this event.`);
+                        return;
+                    }
+                }
+
+                // Verify Proofs (pass badgeId if available)
+                const isValid = ApiService.crypto.verifyPuzzleProof(activityId, payload.proofs, tokenBadgeId);
+
+                if (!isValid) {
+                    // DEBUG INFO
+                    const pieces = ['p1', 'p2', 'p3', 'p4'];
+                    const expected = pieces.map(p => ApiService.crypto.signPuzzlePiece(activityId, p, tokenBadgeId));
+                    const debugMsg = `Expected: ${expected[0].substring(0, 4)}...\nGot: ${payload.proofs[0]?.substring(0, 4)}...\n\nBadgeID: ${tokenBadgeId}\nEventID: ${activityId}`;
+
+                    Alert.alert('Verification Failed', `Signature mismatch.\n\n${debugMsg}`);
+                    return;
+                }
+
+                // Show which badge will be issued
+                const badgeName = targetBadge?.name || 'Selected Badge';
+
+                Alert.alert(
+                    '解謎驗證通過！',
+                    `團隊勝利已確認。\n\n準備發放：\n"${badgeName}"\n\n掃描玩家 ID 以分配。`,
+                    [
+                        {
+                            text: '取消',
+                            style: 'cancel',
+                            onPress: () => setShowScanModal(false) // Close if canceled
+                        },
+                        {
+                            text: '發放徽章',
+                            onPress: () => {
+                                // Resume camera for User ID scan
+                                setParticipantId(null); // Clear previous ID
+                                setTimeout(() => setIsCameraActive(true), 500);
+                            }
+                        }
+                    ]
+                );
+            }
+        } catch (e) {
+            Alert.alert('錯誤', '無效的安全憑證');
+        }
+    };
+
+    const codeScanner = useCodeScanner({
+        codeTypes: ['qr'],
+        onCodeScanned: onCodeScanned
+    });
+
     useFocusEffect(
         useCallback(() => {
+
             const fetchBadges = async () => {
+                const offline = ApiService.config.isForceOffline();
+                setIsOffline(offline);
                 try {
                     const badges = await ApiService.events.getEventBadges(activityId);
                     setAvailableBadges(badges);
@@ -68,12 +174,124 @@ const IssueBadgeScreen = ({ route, navigation }: any) => {
         }
     };
 
+    const handleOfflineIssue = () => {
+        if (!selectedBadge) return;
+
+        // Static Offline Token
+        const offlineToken = JSON.stringify({
+            type: 'static',
+            bid: selectedBadge.id,
+            eid: activityId
+        });
+
+        setQrToken(offlineToken);
+        setExpiresAt(0); // No expiry
+        setShowQrModal(true);
+    };
+
+    const handleSecureIssue = async () => {
+        if (!selectedBadge) return;
+
+        // Check for Session Key
+        const key = await ApiService.config.getEventKey(activityId);
+        if (!key) {
+            Alert.alert('Secure Mode Not Configured', 'Please go to Activity Settings and setup Secure Offline Mode first.');
+            return;
+        }
+
+        if (!hasPermission) {
+            const p = await requestPermission();
+            if (!p) {
+                Alert.alert('權限被拒', '需要相機權限才能掃描參加者 ID。');
+                return;
+            }
+        }
+
+        setParticipantId(null);
+        setShowScanModal(true);
+        setIsCameraActive(true);
+    };
+
+    const generateSecureBlob = async (uid: string) => {
+        if (!selectedBadge) return;
+        setProcessingSecure(true);
+        try {
+            const key = await ApiService.config.getEventKey(activityId);
+            if (!key) throw new Error('Key missing');
+
+            // 1. Prepare Payload
+            const payload = {
+                bid: selectedBadge.id,
+                salt: Math.random().toString(36).substring(7),
+                ts: Date.now()
+            };
+
+            // 2. Encrypt
+            const encryptedBlob = ApiService.crypto.encrypt(payload, key);
+
+            // 3. Calculate Hash (Blob + UserID)
+            const hash = ApiService.crypto.hash(encryptedBlob + uid);
+
+            // 4. Store Hash Locally
+            const validationRecord = {
+                eventId: activityId,
+                userId: uid,
+                hash: hash,
+                timestamp: new Date().toISOString()
+            };
+
+            // 4. Try Online Sync First
+            let isSynced = false;
+            if (!isOffline) {
+                try {
+                    console.log('Attempting instant sync...');
+                    await ApiService.events.syncValidations([validationRecord]);
+                    isSynced = true;
+                    Alert.alert('成功', '徽章已發放並在伺服器上驗證！');
+                } catch (err) {
+                    console.log('Instant sync failed, falling back to offline storage.', err);
+                }
+            }
+
+            if (!isSynced) {
+                // Store Locally
+                const stored = await AsyncStorage.getItem('offline_validations');
+                const existingValidations = stored ? JSON.parse(stored) : [];
+                const updated = [...existingValidations, validationRecord];
+                await AsyncStorage.setItem('offline_validations', JSON.stringify(updated));
+
+                // Show QR as Backup
+                const qrPayload = JSON.stringify({
+                    type: 'secure',
+                    eid: activityId,
+                    blob: encryptedBlob
+                });
+                setQrToken(qrPayload); // Show the blob as QR
+                setExpiresAt(0); // No expiry
+                setShowQrModal(true);
+
+                Alert.alert('已離線儲存', '驗證已本機儲存。請在上線時同步。');
+            } else {
+                // Even if synced, we could show QR, but usually unnecessary. 
+                // If user wants it, they can use "Show Online QR" button?
+                // For now, Close the scan modal and done.
+                setShowScanModal(false);
+            }
+
+        } catch (e) {
+            console.error(e);
+            Alert.alert('Error', 'Failed to generate secure credential.');
+        } finally {
+            setProcessingSecure(false);
+        }
+    };
+
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>Issue Credential</Text>
+                <Text style={styles.headerTitle}>發放憑證</Text>
                 <TouchableOpacity onPress={() => navigation.goBack()}>
-                    <Text style={styles.headerButton}>Cancel</Text>
+                    <Text style={styles.headerButton}>取消</Text>
                 </TouchableOpacity>
             </View>
 
@@ -81,7 +299,7 @@ const IssueBadgeScreen = ({ route, navigation }: any) => {
 
                 {/* Badge Selection */}
                 <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Select Badge</Text>
+                    <Text style={styles.sectionTitle}>選擇徽章</Text>
                 </View>
 
                 <ScrollView
@@ -91,7 +309,7 @@ const IssueBadgeScreen = ({ route, navigation }: any) => {
                 >
                     {availableBadges.length === 0 ? (
                         <View style={styles.emptyContainer}>
-                            <Text style={styles.emptyText}>No badges defined for this activity.</Text>
+                            <Text style={styles.emptyText}>此活動未定義徽章。</Text>
                         </View>
                     ) : (
                         availableBadges.map((badge) => (
@@ -118,16 +336,24 @@ const IssueBadgeScreen = ({ route, navigation }: any) => {
                 {/* Preview Summary */}
                 <View style={styles.summaryContainer}>
                     <Text style={styles.summaryText}>
-                        Issuing <Text style={styles.bold}>{selectedBadge?.name || '...'}</Text> for <Text style={styles.bold}>{activityName}</Text>
+                        發放 <Text style={styles.bold}>{selectedBadge?.name || '...'}</Text> 給 <Text style={styles.bold}>{activityName}</Text>
                     </Text>
                 </View>
 
                 <TouchableOpacity
-                    style={[styles.issueButton, !selectedBadge && styles.disabledButton]}
+                    style={[styles.issueButton, (!selectedBadge || isOffline) && styles.disabledButton]}
                     onPress={handleIssue}
+                    disabled={!selectedBadge || isOffline}
+                >
+                    <Text style={styles.issueButtonText}>顯示線上 QR Code (5 分鐘) {isOffline ? '(離線)' : ''}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[styles.issueButton, styles.secureButton, !selectedBadge && styles.disabledButton]}
+                    onPress={handleSecureIssue}
                     disabled={!selectedBadge}
                 >
-                    <Text style={styles.issueButtonText}>Show QR Code</Text>
+                    <Text style={styles.issueButtonText}>安全發放 (掃描 ID)</Text>
                 </TouchableOpacity>
 
             </ScrollView>
@@ -141,9 +367,9 @@ const IssueBadgeScreen = ({ route, navigation }: any) => {
             >
                 <View style={styles.modalContainer}>
                     <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>Scan to Check In</Text>
+                        <Text style={styles.modalTitle}>掃描簽到</Text>
                         <TouchableOpacity onPress={() => setShowQrModal(false)}>
-                            <Text style={styles.closeButton}>Close</Text>
+                            <Text style={styles.closeButton}>關閉</Text>
                         </TouchableOpacity>
                     </View>
 
@@ -157,10 +383,48 @@ const IssueBadgeScreen = ({ route, navigation }: any) => {
                             <Text>Loading...</Text>
                         )}
                         <Text style={styles.qrInstruction}>
-                            Ask the participant to scan this code with their app.
+                            請參加者使用應用程式掃描此代碼。
                         </Text>
                         <Text style={styles.expiryText}>
-                            Expires in 5 minutes
+                            {expiresAt === 0 ? '無過期限制 (離線靜態 QR)' : '5 分鐘後過期'}
+                        </Text>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Scan Modal */}
+            <Modal
+                visible={showScanModal}
+                animationType="slide"
+                presentationStyle="fullScreen"
+                onRequestClose={() => setShowScanModal(false)}
+            >
+                <View style={styles.modalContainer}>
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>掃描參加者 QR</Text>
+                        <TouchableOpacity onPress={() => setShowScanModal(false)}>
+                            <Text style={styles.closeButton}>取消</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={{ flex: 1, backgroundColor: 'black' }}>
+                        {device && hasPermission ? (
+                            <Camera
+                                style={styles.absoluteFill}
+                                device={device}
+                                isActive={isCameraActive}
+                                codeScanner={codeScanner}
+                            />
+                        ) : (
+                            <View style={styles.qrContainer}>
+                                <Text style={styles.qrInstruction}>相機無法使用或權限被拒</Text>
+                            </View>
+                        )}
+                    </View>
+
+                    <View style={{ padding: 20, backgroundColor: 'white' }}>
+                        <Text style={{ textAlign: 'center', color: '#666' }}>
+                            掃描參加者的「我的 ID」QR Code 以驗證身份。
                         </Text>
                     </View>
                 </View>
@@ -326,6 +590,11 @@ const styles = StyleSheet.create({
         fontSize: 17,
         fontWeight: '600',
     },
+    offlineButton: {
+        marginTop: 12,
+        backgroundColor: '#5856D6', // Purple
+        shadowColor: '#5856D6',
+    },
     modalContainer: {
         flex: 1,
         backgroundColor: '#fff',
@@ -364,6 +633,19 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#999',
     },
+    secureButton: {
+        marginTop: 12,
+        backgroundColor: '#FF9500', // Orange
+        shadowColor: '#FF9500',
+    },
+    absoluteFill: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+    }
 });
 
 export default IssueBadgeScreen;
+

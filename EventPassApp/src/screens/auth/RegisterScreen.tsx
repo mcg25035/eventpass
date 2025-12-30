@@ -18,19 +18,23 @@ const RegisterScreen = ({ navigation }: any) => {
 
     const handleRegister = async () => {
         if (!username || !email || !password) {
-            Alert.alert('Error', 'Please fill in all fields');
+            Alert.alert('錯誤', '請填寫所有欄位');
             return;
         }
 
         setLoading(true);
         try {
             await ApiService.auth.register(username, email, password);
-            // After successful register, usually we get a token and auto-login
+
+            // Auto login after register
+            await ApiService.auth.login(email, password);
+
+            Alert.alert('成功', '帳號已建立並登入！');
             navigation.replace('Dashboard');
         } catch (error: any) {
             console.error(error);
-            const message = error.response?.data?.message || 'Registration failed.';
-            Alert.alert('Error', message);
+            const message = error.response?.data?.message || '註冊失敗。';
+            Alert.alert('錯誤', message);
         } finally {
             setLoading(false);
         }
@@ -40,38 +44,38 @@ const RegisterScreen = ({ navigation }: any) => {
         <SafeAreaView style={styles.container}>
             <View style={styles.content}>
                 <Text style={styles.title}>EventPass</Text>
-                <Text style={styles.subtitle}>Create Account</Text>
+                <Text style={styles.subtitle}>建立帳號</Text>
 
                 <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Username</Text>
+                    <Text style={styles.label}>使用者名稱</Text>
                     <TextInput
                         style={styles.input}
                         value={username}
                         onChangeText={setUsername}
-                        placeholder="Choose a username"
+                        placeholder="選擇使用者名稱"
                         autoCapitalize="none"
                     />
                 </View>
 
                 <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Email</Text>
+                    <Text style={styles.label}>電子郵件</Text>
                     <TextInput
                         style={styles.input}
                         value={email}
                         onChangeText={setEmail}
-                        placeholder="Enter your email"
+                        placeholder="輸入您的電子郵件"
                         autoCapitalize="none"
                         keyboardType="email-address"
                     />
                 </View>
 
                 <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Password</Text>
+                    <Text style={styles.label}>密碼</Text>
                     <TextInput
                         style={styles.input}
                         value={password}
                         onChangeText={setPassword}
-                        placeholder="Choose a password"
+                        placeholder="設定密碼"
                         secureTextEntry
                     />
                 </View>
@@ -81,14 +85,14 @@ const RegisterScreen = ({ navigation }: any) => {
                     onPress={handleRegister}
                     disabled={loading}
                 >
-                    <Text style={styles.registerButtonText}>{loading ? 'Creating...' : 'Register'}</Text>
+                    <Text style={styles.registerButtonText}>{loading ? '建立中...' : '註冊'}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                     style={styles.loginLink}
                     onPress={() => navigation.navigate('Login')}
                 >
-                    <Text style={styles.loginLinkText}>Already have an account? Login</Text>
+                    <Text style={styles.loginLinkText}>已有帳號？登入</Text>
                 </TouchableOpacity>
             </View>
         </SafeAreaView>

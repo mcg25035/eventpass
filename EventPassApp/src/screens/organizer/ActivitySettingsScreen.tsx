@@ -22,6 +22,7 @@ const ActivitySettingsScreen = ({ route, navigation }: any) => {
     const [title, setTitle] = useState(activityName || '');
     const [description, setDescription] = useState('');
     const [loading, setLoading] = useState(false);
+    const [isOnline, setIsOnline] = useState(true);
 
     // Sync local state if params change (e.g. coming from list)
     // Sync local state if params change (e.g. coming from list)
@@ -40,7 +41,8 @@ const ActivitySettingsScreen = ({ route, navigation }: any) => {
             setDescription(event.description || '');
             setStartDate(new Date(event.start_time));
             setEndDate(new Date(event.end_time));
-            // setIsOnline(event.location === 'Online'); 
+            // is_offline_active true => Offline Mode => isOnline = false
+            setIsOnline(!event.is_offline_active);
         } catch (error) {
             console.error('Failed to fetch details:', error);
             Alert.alert('Error', 'Failed to load activity details');
@@ -49,14 +51,13 @@ const ActivitySettingsScreen = ({ route, navigation }: any) => {
         }
     };
 
-    // Mock state
-    const [isOnline, setIsOnline] = useState(true);
+
     // ... dates ...
 
     // Convert Dates to ISO for API
     const handleSave = async () => {
         if (!title.trim()) {
-            Alert.alert('Error', 'Please enter a title');
+            Alert.alert('錯誤', '請輸入標題');
             return;
         }
 
@@ -67,17 +68,17 @@ const ActivitySettingsScreen = ({ route, navigation }: any) => {
                 description,
                 start_time: startDate.toISOString(),
                 end_time: endDate.toISOString(),
-                // location: isOnline ? 'Online' : 'Offline' 
+                is_offline_active: !isOnline
             };
 
             if (currentActivityId) {
                 // Update
                 await ApiService.events.updateEvent(currentActivityId, payload);
-                Alert.alert('Success', 'Activity updated!');
+                Alert.alert('成功', '活動已更新！');
             } else {
                 // Create
                 const newEvent = await ApiService.events.createEvent(payload);
-                Alert.alert('Success', 'Activity created! You can now add badges.');
+                Alert.alert('成功', '活動已建立！您現在可以新增徽章。');
 
                 // CRITICAL: Update local state immediately so next save is an update
                 setCurrentActivityId(newEvent.id);
@@ -87,7 +88,7 @@ const ActivitySettingsScreen = ({ route, navigation }: any) => {
             }
         } catch (error: any) {
             console.error(error);
-            Alert.alert('Error', 'Failed to save activity');
+            Alert.alert('錯誤', '儲存活動失敗');
         } finally {
             setLoading(false);
         }
@@ -97,22 +98,22 @@ const ActivitySettingsScreen = ({ route, navigation }: any) => {
         if (!currentActivityId) return;
 
         Alert.alert(
-            'Delete Activity',
-            'Are you sure you want to delete this activity? This action cannot be undone.',
+            '刪除活動',
+            '您確定要刪除此活動嗎？此操作無法復原。',
             [
-                { text: 'Cancel', style: 'cancel' },
+                { text: '取消', style: 'cancel' },
                 {
-                    text: 'Delete',
+                    text: '刪除',
                     style: 'destructive',
                     onPress: async () => {
                         setLoading(true);
                         try {
                             await ApiService.events.deleteEvent(currentActivityId);
-                            Alert.alert('Success', 'Activity deleted successfully');
+                            Alert.alert('成功', '活動刪除成功');
                             navigation.navigate('OrganizerManagement');
                         } catch (error: any) {
                             console.error(error);
-                            Alert.alert('Error', 'Failed to delete activity');
+                            Alert.alert('錯誤', '刪除活動失敗');
                             setLoading(false);
                         }
                     }
@@ -172,9 +173,9 @@ const ActivitySettingsScreen = ({ route, navigation }: any) => {
 
                 {/* Activity Mode Card */}
                 <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>Activity Mode</Text>
+                    <Text style={styles.sectionTitle}>活動模式</Text>
                     <View style={styles.modeRow}>
-                        <Text style={[styles.modeLabel, isOnline ? styles.activeText : styles.inactiveText]}>Offline</Text>
+                        <Text style={[styles.modeLabel, !isOnline ? styles.activeText : styles.inactiveText]}>離線</Text>
                         <Switch
                             value={isOnline}
                             onValueChange={setIsOnline}
@@ -182,31 +183,54 @@ const ActivitySettingsScreen = ({ route, navigation }: any) => {
                             thumbColor={'#fff'}
                             ios_backgroundColor="#e9e9eb"
                         />
-                        <Text style={[styles.modeLabel, !isOnline ? styles.activeText : styles.inactiveText]}>Online</Text>
+                        <Text style={[styles.modeLabel, isOnline ? styles.activeText : styles.inactiveText]}>線上</Text>
                     </View>
+
+                    {/* Secure Offline Handshake */}
+                    {currentActivityId && !isOnline && (
+                        <TouchableOpacity
+                            style={styles.handshakeButton}
+                            onPress={async () => {
+                                try {
+                                    setLoading(true);
+                                    const res = await ApiService.events.handshake(currentActivityId);
+                                    if (res.session_key) {
+                                        await ApiService.config.storeEventKey(currentActivityId, res.session_key);
+                                        Alert.alert('安全模式就緒', '會話密鑰已安全交換並儲存。');
+                                    }
+                                } catch (e) {
+                                    Alert.alert('錯誤', '握手失敗');
+                                } finally {
+                                    setLoading(false);
+                                }
+                            }}
+                        >
+                            <Text style={styles.handshakeText}>📲 設定安全離線金鑰</Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 {/* Activity Info Card */}
                 <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>Activity Details</Text>
+                    <Text style={styles.sectionTitle}>活動詳情</Text>
 
                     <View style={styles.inputContainer}>
-                        <Text style={styles.label}>Title</Text>
+                        <Text style={styles.label}>標題</Text>
                         <TextInput
                             style={styles.input}
                             value={title}
                             onChangeText={setTitle}
-                            placeholder="Activity Title"
+                            placeholder="活動標題"
                         />
                     </View>
 
                     <View style={styles.inputContainer}>
-                        <Text style={styles.label}>Description</Text>
+                        <Text style={styles.label}>描述</Text>
                         <TextInput
                             style={styles.input}
                             value={description}
                             onChangeText={setDescription}
-                            placeholder="Optional description"
+                            placeholder="選填描述"
                             multiline
                         />
                     </View>
@@ -215,27 +239,27 @@ const ActivitySettingsScreen = ({ route, navigation }: any) => {
 
                 {/* Manage Badges Section - Separate Card for better visibility */}
                 <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>Badges</Text>
+                    <Text style={styles.sectionTitle}>徽章</Text>
                     <TouchableOpacity
                         style={[styles.actionButton, !currentActivityId && styles.actionButtonDisabled]}
                         onPress={() => {
                             if (!currentActivityId) {
-                                Alert.alert('Notice', 'Please save the activity first before managing badges.');
+                                Alert.alert('注意', '請先儲存活動再管理徽章。');
                                 return;
                             }
                             navigation.navigate('BadgeList', { activityId: currentActivityId, activityName: title });
                         }}
                     >
-                        <Text style={styles.actionButtonText}>Manage Badges {(!currentActivityId) && '(Save First)'}</Text>
+                        <Text style={styles.actionButtonText}>管理徽章 {(!currentActivityId) && '(請先儲存)'}</Text>
                     </TouchableOpacity>
                 </View>
 
                 {/* Date & Time Card */}
                 <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>Schedule</Text>
+                    <Text style={styles.sectionTitle}>排程</Text>
 
                     <View style={styles.scheduleRow}>
-                        <Text style={styles.scheduleLabel}>Start</Text>
+                        <Text style={styles.scheduleLabel}>開始</Text>
                         <View style={styles.pickerGroup}>
                             <TouchableOpacity onPress={() => showPicker('start', 'date')} style={styles.pickerButton}>
                                 <Text style={styles.pickerText}>{formatDate(startDate)}</Text>
@@ -249,7 +273,7 @@ const ActivitySettingsScreen = ({ route, navigation }: any) => {
                     <View style={styles.divider} />
 
                     <View style={styles.scheduleRow}>
-                        <Text style={styles.scheduleLabel}>End</Text>
+                        <Text style={styles.scheduleLabel}>結束</Text>
                         <View style={styles.pickerGroup}>
                             <TouchableOpacity onPress={() => showPicker('end', 'date')} style={styles.pickerButton}>
                                 <Text style={styles.pickerText}>{formatDate(endDate)}</Text>
@@ -276,7 +300,7 @@ const ActivitySettingsScreen = ({ route, navigation }: any) => {
                     onPress={handleSave}
                     disabled={loading}
                 >
-                    <Text style={styles.saveButtonText}>{loading ? 'Saving...' : 'Save Activity'}</Text>
+                    <Text style={styles.saveButtonText}>{loading ? '儲存中...' : '儲存活動'}</Text>
                 </TouchableOpacity>
 
                 {currentActivityId && (
@@ -453,6 +477,17 @@ const styles = StyleSheet.create({
         backgroundColor: '#aaccff',
         opacity: 0.8,
     },
+    handshakeButton: {
+        marginTop: 12,
+        backgroundColor: '#5856D6',
+        padding: 12,
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    handshakeText: {
+        color: '#fff',
+        fontWeight: '600',
+    }
 });
 
 export default ActivitySettingsScreen;

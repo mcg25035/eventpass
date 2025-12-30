@@ -40,13 +40,13 @@ const BadgeListScreen = ({ route, navigation }: any) => {
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>Badge Management</Text>
+                <Text style={styles.headerTitle}>徽章管理</Text>
                 <Text style={styles.subTitle}>{activityName}</Text>
             </View>
 
             <ScrollView contentContainerStyle={styles.list}>
                 {badges.length === 0 ? (
-                    <Text style={styles.emptyText}>No badges yet. Tap + to add one.</Text>
+                    <Text style={styles.emptyText}>尚無徽章。點擊 + 新增一個。</Text>
                 ) : (
                     badges.map((badge) => (
                         <TouchableOpacity
